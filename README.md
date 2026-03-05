@@ -81,6 +81,7 @@ clawcare scan <skill_directory> --format json --json-out report.json
 ============================================================
 ClawCare Scan Report
 ============================================================
+Run ID:   a1b2c3d4e5f6
 Path:     ./my-project
 Mode:     ci
 Fail on:  high

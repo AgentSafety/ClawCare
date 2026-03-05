@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -114,6 +115,7 @@ class ScanResult:
     manifest_violations: list[Finding] = field(default_factory=list)
     mode: str = "local"
     fail_on: str = "high"
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
     # ---- helpers ----
     @property

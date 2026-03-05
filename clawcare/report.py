@@ -35,6 +35,7 @@ def render_text(result: ScanResult, color: bool = True) -> str:
     lines.append("=" * 60)
     lines.append("ClawCare Scan Report")
     lines.append("=" * 60)
+    lines.append(f"Run ID:   {result.run_id}")
     lines.append(f"Path:     {result.scanned_path}")
     lines.append(f"Adapter:  {result.adapter.name} v{clawcare.__version__}")
     lines.append(f"Mode:     {result.mode}")
@@ -93,7 +94,7 @@ def render_text(result: ScanResult, color: bool = True) -> str:
 def _finding_to_dict(f: Finding) -> dict[str, Any]:
     return {
         "rule_id": f.rule_id,
-        "severity": str(f.severity),
+        "severity": f.severity.name,
         "file": f.file_path,
         "line": f.line,
         "excerpt": f.excerpt,
@@ -107,6 +108,7 @@ def render_json(result: ScanResult) -> str:
     doc: dict[str, Any] = {
         "tool": "clawcare",
         "version": clawcare.__version__,
+        "run_id": result.run_id,
         "adapter_used": {
             "name": result.adapter.name,
             "version": clawcare.__version__,

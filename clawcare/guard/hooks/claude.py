@@ -88,7 +88,10 @@ def handle_pre(config: GuardConfig) -> int:
             platform="claude",
             command=command,
             status=_status_map.get(verdict.decision, verdict.decision),
-            findings=[f.rule_id for f in verdict.findings],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in verdict.findings
+            ],
             log_path=config.audit.log_path,
             extra={"tool_name": tool_name},
         )
@@ -166,7 +169,10 @@ def handle_post(config: GuardConfig) -> int:
             platform="claude",
             command=command or "",
             status="executed",
-            findings=[f.rule_id for f in post_verdict.findings] if post_verdict else [],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in post_verdict.findings
+            ] if post_verdict else [],
             exit_code=exit_code,
             duration_ms=duration_ms,
             log_path=config.audit.log_path,
@@ -212,7 +218,10 @@ def handle_post_failure(config: GuardConfig) -> int:
             platform="claude",
             command=command or "",
             status="failed",
-            findings=[f.rule_id for f in post_verdict.findings] if post_verdict else [],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in post_verdict.findings
+            ] if post_verdict else [],
             exit_code=exit_code,
             log_path=config.audit.log_path,
             extra={

@@ -29,6 +29,11 @@ class TestTextOutput:
         assert "claude_code" in output
         assert clawcare.__version__ in output
 
+    def test_contains_run_id(self):
+        result = _make_result()
+        output = render_text(result, color=False)
+        assert f"Run ID:   {result.run_id}" in output
+
     def test_contains_findings(self):
         output = render_text(_make_result(), color=False)
         assert "CRIT_PIPE_TO_SHELL" in output
@@ -45,6 +50,12 @@ class TestJsonOutput:
         doc = json.loads(raw)
         assert doc["tool"] == "clawcare"
 
+    def test_run_id_present(self):
+        result = _make_result()
+        doc = json.loads(render_json(result))
+        assert doc["run_id"] == result.run_id
+        assert len(doc["run_id"]) == 12  # hex[:12]
+
     def test_adapter_attribution(self):
         doc = json.loads(render_json(_make_result()))
         assert doc["adapter_used"]["name"] == "claude_code"
@@ -54,8 +65,14 @@ class TestJsonOutput:
         doc = json.loads(render_json(_make_result()))
         findings = doc["findings"]
         # CRITICAL first, then HIGH
-        assert findings[0]["severity"] == "critical"
-        assert findings[1]["severity"] == "high"
+        assert findings[0]["severity"] == "CRITICAL"
+        assert findings[1]["severity"] == "HIGH"
+
+    def test_severity_is_uppercase(self):
+        doc = json.loads(render_json(_make_result()))
+        assert doc["findings"][0]["severity"] == "CRITICAL"
+        assert doc["findings"][1]["severity"] == "HIGH"
+        assert doc["manifest_violations"][0]["severity"] == "HIGH"
 
     def test_manifest_violations_separate(self):
         doc = json.loads(render_json(_make_result()))

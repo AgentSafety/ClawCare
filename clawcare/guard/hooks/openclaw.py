@@ -64,7 +64,10 @@ def handle_post(config: GuardConfig) -> int:
             platform="openclaw",
             command=command,
             status="executed",
-            findings=[f.rule_id for f in post_verdict.findings] if post_verdict else [],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in post_verdict.findings
+            ] if post_verdict else [],
             exit_code=exit_code,
             duration_ms=duration_ms,
             log_path=config.audit.log_path,

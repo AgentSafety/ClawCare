@@ -299,7 +299,10 @@ def guard_run(
             platform="generic",
             command=cmd_str,
             status=_status_map.get(verdict.decision, verdict.decision),
-            findings=[f.rule_id for f in verdict.findings],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in verdict.findings
+            ],
             log_path=cfg.audit.log_path,
         )
 
@@ -331,7 +334,10 @@ def guard_run(
             platform="generic",
             command=cmd_str,
             status="executed",
-            findings=[f.rule_id for f in verdict.findings],
+            findings=[
+                {"rule_id": f.rule_id, "severity": f.severity.name}
+                for f in verdict.findings
+            ],
             exit_code=result.returncode,
             duration_ms=elapsed_ms,
             log_path=cfg.audit.log_path,
@@ -630,13 +636,23 @@ def guard_report(
     click.echo("-" * 72)
     for event in events:
         ts = event.get("timestamp", "-")
+        run_id = event.get("run_id", "-")
         platform = event.get("platform", "-")
         kind = event.get("event", "-")
         status = event.get("status", event.get("decision", "-"))
         command = event.get("command", "")
         findings = event.get("findings", [])
-        finding_text = ", ".join(findings) if findings else "none"
-        click.echo(f"[{ts}] {platform} {kind} status={status}")
+        # Support both new dict format and legacy string list
+        finding_parts: list[str] = []
+        for f in findings:
+            if isinstance(f, dict):
+                label = f.get("severity", "") or f.get("level_label", "")
+                rid = f.get("rule_id", "")
+                finding_parts.append(f"[{label}] {rid}" if label else rid)
+            else:
+                finding_parts.append(str(f))
+        finding_text = ", ".join(finding_parts) if finding_parts else "none"
+        click.echo(f"[{ts}] {platform} {kind} status={status} run_id={run_id}")
         click.echo(f"  cmd: {command}")
         click.echo(f"  findings: {finding_text}")
         if "exit_code" in event:

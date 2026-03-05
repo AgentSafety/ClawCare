@@ -14,6 +14,7 @@ Each line is a JSON object with:
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -36,11 +37,12 @@ def write_audit_event(
     platform: str = "generic",
     command: str = "",
     status: str = "allowed",
-    findings: list[str] | None = None,
+    findings: list[dict[str, str]] | None = None,
     exit_code: int | None = None,
     duration_ms: float | None = None,
     log_path: str | Path | None = None,
     extra: dict[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Append a single audit event to the JSONL log.
 
@@ -50,6 +52,7 @@ def write_audit_event(
 
     record: dict[str, Any] = {
         "timestamp": _now_iso(),
+        "run_id": run_id or uuid.uuid4().hex[:12],
         "event": event,
         "platform": platform,
         "command": command,

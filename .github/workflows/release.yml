@@ -19,6 +19,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history to verify branch
+
+      - name: Verify tag is on main
+        run: |
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -q 'origin/main'; then
+            echo "::error::Tag must point to a commit on the main branch"
+            exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
