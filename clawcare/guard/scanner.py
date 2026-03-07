@@ -15,6 +15,33 @@ from clawcare.models import Severity
 from clawcare.scanner.rules import Rule, resolve_rules
 
 # ---------------------------------------------------------------------------
+# Eval inner-command extraction
+# ---------------------------------------------------------------------------
+
+_EVAL_INNER_RE = re.compile(
+    r"""\beval\s+(?:\$\(([^)]+)\)|"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""",
+    re.IGNORECASE,
+)
+
+# Matches a bare variable reference like $VAR or ${VAR} — not a real command.
+_VAR_ONLY_RE = re.compile(r"^\$\{?\w+\}?$")
+
+
+def _extract_eval_inner(cmd: str) -> list[str]:
+    """Extract inner subcommands from eval $(...), eval "...", eval '...'
+
+    Skips pure variable references (e.g. $SETUP_CMD) since we cannot
+    statically determine their content — MED_SHELL_EVAL stays as fallback.
+    """
+    results = []
+    for m in _EVAL_INNER_RE.finditer(cmd):
+        inner = m.group(1) or m.group(2) or m.group(3)
+        if inner and inner.strip() and not _VAR_ONLY_RE.match(inner.strip()):
+            results.append(inner.strip())
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Quoted-string detection — skip matches inside quoted args of safe commands
 # ---------------------------------------------------------------------------
 
@@ -373,6 +400,16 @@ def scan_command(
                     )
                 )
                 break  # one finding per rule is enough
+
+    # Recursive eval scanning: replace MED_SHELL_EVAL with findings from inner command
+    inner_cmds = _extract_eval_inner(cmd)
+    if inner_cmds:
+        # Remove MED_SHELL_EVAL finding (will be replaced by inner scan results)
+        findings = [f for f in findings if f.rule_id != "MED_SHELL_EVAL"]
+        for inner in inner_cmds:
+            inner_verdict = scan_command(inner, fail_on=fail_on, rules=effective_rules)
+            findings.extend(inner_verdict.findings)
+    # If no extractable inner content, MED_SHELL_EVAL stays as fallback
 
     # Determine decision
     decision = "allow"

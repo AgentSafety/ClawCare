@@ -205,6 +205,65 @@ def scan(
 
 
 # ───────────────────────────────────────────────────────────────────
+# dashboard
+# ───────────────────────────────────────────────────────────────────
+
+
+@main.command()
+@click.option(
+    "--scan-json",
+    "scan_json",
+    default=None,
+    type=click.Path(),
+    help="Path to a scan JSON report (from --json-out).",
+)
+@click.option(
+    "--log-path",
+    "log_path",
+    default=None,
+    type=click.Path(),
+    help="Override guard audit log path.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    default="clawcare-dashboard.html",
+    type=click.Path(),
+    help="Output HTML file path (default: clawcare-dashboard.html).",
+)
+@click.option("--open", "open_browser", is_flag=True, default=True, help="Open in browser after generating.")
+@click.option("--no-open", "no_open", is_flag=True, default=False, help="Don't open in browser.")
+def dashboard(
+    scan_json: str | None,
+    log_path: str | None,
+    out_path: str,
+    open_browser: bool,
+    no_open: bool,
+) -> None:
+    """Generate a local HTML dashboard with scan results and guard history."""
+    import webbrowser
+
+    from clawcare.dashboard import generate_dashboard
+
+    # Auto-discover scan.json in cwd if not explicitly provided
+    if scan_json is None and Path("scan.json").is_file():
+        scan_json = "scan.json"
+        click.echo("Auto-detected scan.json in current directory.")
+
+    html_content = generate_dashboard(
+        scan_json_path=scan_json,
+        guard_log_path=log_path,
+    )
+
+    dest = Path(out_path)
+    dest.write_text(html_content, encoding="utf-8")
+    click.echo(f"Dashboard written to {dest}")
+
+    if not no_open:
+        webbrowser.open(f"file://{dest.resolve()}")
+
+
+# ───────────────────────────────────────────────────────────────────
 # adapters
 # ───────────────────────────────────────────────────────────────────
 

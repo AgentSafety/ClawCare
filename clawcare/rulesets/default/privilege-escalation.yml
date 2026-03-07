@@ -1,0 +1,45 @@
+# ClawCare Default Ruleset — Privilege Escalation
+#
+# Purpose: Detect privilege escalation techniques including SUID/SGID backdoors,
+# sudoers tampering, disk wiping, and unauthorized root shell spawning.
+
+# ── Critical ────────────────────────────────────────────────
+
+- id: CRIT_SUID_SGID
+  severity: critical
+  pattern: "chmod\\s+(?:[ugoa]*\\+[sS]|[46]\\d{3})\\s+"
+  explanation: Setting SUID/SGID on an executable allows any user to run it with elevated privileges — a classic privilege escalation backdoor.
+  remediation: Remove SUID/SGID bits; never set them on shells or user-controlled binaries.
+  scan_context: code
+
+- id: CRIT_SUDOERS_TAMPER
+  severity: critical
+  pattern: "(?:>>?\\s*|\\btee\\s+)/etc/sudoers"
+  explanation: Writing to /etc/sudoers can grant unrestricted root access.
+  remediation: Never modify /etc/sudoers programmatically; use visudo manually.
+  scan_context: code
+
+- id: CRIT_DISK_WIPE
+  severity: critical
+  pattern: "\\bdd\\b[^\\n]*\\bof\\s*=\\s*/dev/[a-zA-Z]"
+  explanation: Writing to a raw device node with dd can wipe entire disks or partitions.
+  remediation: Never write to /dev/ block devices in extension code.
+  scan_context: code
+
+# ── High ────────────────────────────────────────────────────
+
+- id: HIGH_PRIV_SHELL
+  severity: high
+  pattern: "\\bsudo\\s+(?:-\\w+\\s+)*(?:su|bash|sh|zsh|fish|dash|ksh|tcsh|csh)\\b"
+  explanation: Spawning an interactive root shell via sudo bypasses audit trails and grants unrestricted access.
+  remediation: Use targeted sudo commands rather than spawning a root shell.
+  scan_context: code
+
+# ── Medium ──────────────────────────────────────────────────
+
+- id: MED_SUDOERS_PERMISSION
+  severity: medium
+  pattern: "chmod\\s+(?:777|a\\+rwx|-R\\s+777)\\s+/etc/sudoers"
+  explanation: Making /etc/sudoers world-writable allows any user to escalate privileges.
+  remediation: Leave /etc/sudoers at its default restrictive permissions.
+  scan_context: code

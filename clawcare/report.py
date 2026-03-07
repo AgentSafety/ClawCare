@@ -105,10 +105,13 @@ def _finding_to_dict(f: Finding) -> dict[str, Any]:
 
 def render_json(result: ScanResult) -> str:
     """Produce stable JSON output (deterministic sorting)."""
+    from datetime import datetime, timezone
+
     doc: dict[str, Any] = {
         "tool": "clawcare",
         "version": clawcare.__version__,
         "run_id": result.run_id,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "adapter_used": {
             "name": result.adapter.name,
             "version": clawcare.__version__,

@@ -7,7 +7,7 @@
 
 - id: CRIT_PIPE_TO_SHELL
   severity: critical
-  pattern: "(curl|wget)\\s+[^\\n|]*\\|\\s*(bash|sh|zsh|python[23]?|node)"
+  pattern: "(curl|wget)\\s+[^\\n|;&]*(?:\\|\\s*|&&\\s*)(bash|sh|zsh|python[23]?|node)"
   explanation: Piping remote content directly into a shell interpreter is a classic supply-chain attack vector.
   remediation: Download first, inspect, then execute.
   scan_context: code

@@ -28,7 +28,7 @@ def _ensure_parent(path: Path) -> None:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def write_audit_event(
