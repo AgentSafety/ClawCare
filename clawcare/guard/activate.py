@@ -1,6 +1,6 @@
 """Guard activate — install ClawCare hooks into platform config files.
 
-Currently supports Claude Code and OpenClaw.
+Currently supports Claude Code, OpenClaw, and OpenCode.
 
 Claude Code settings
 ~~~~~~~~~~~~~~~~~~~~
@@ -45,6 +45,20 @@ Activation copies the ClawCare Guard TypeScript plugin into
 See:
   https://docs.openclaw.ai/concepts/agent-loop#hook-points
   https://docs.openclaw.ai/tools/plugin#plugin-hooks
+
+OpenCode plugin
+~~~~~~~~~~~~~~~
+OpenCode (sst/opencode) uses TypeScript plugins loaded from a plugins
+directory.  Activation writes the ClawCare Guard plugin file into
+``~/.config/opencode/plugins/clawcare-guard.ts`` (global) or
+``.opencode/plugins/clawcare-guard.ts`` (project-level) and registers the
+absolute path in ``opencode.json`` under the ``"plugin"`` array.
+
+The plugin uses the ``tool.execute.before`` hook to scan commands (throwing
+to block) and ``tool.execute.after`` for post-exec audit logging.
+
+See:
+  https://opencode.ai/docs/plugins/
 """
 
 from __future__ import annotations
@@ -105,6 +119,9 @@ CLAUDE_SETTINGS_PATH = CLAUDE_SETTINGS_DIR / "settings.json"
 
 OPENCLAW_HOME = Path.home() / ".openclaw"
 OPENCLAW_PLUGIN_ID = "clawcare-guard"
+
+OPENCODE_GLOBAL_CONFIG_DIR = Path.home() / ".config" / "opencode"
+OPENCODE_PLUGIN_FILENAME = "clawcare-guard.ts"
 
 # Directory containing bundled plugin assets (TS source + package.json).
 _PLUGIN_ASSETS_DIR = Path(__file__).parent / "plugin_assets"
@@ -317,6 +334,107 @@ def is_openclaw_active(
     return entry.get("enabled", False) is True
 
 
+def activate_opencode(
+    config_dir: str | Path | None = None,
+    *,
+    project_level: bool = False,
+) -> Path:
+    """Install the ClawCare Guard TypeScript plugin for OpenCode.
+
+    Writes the plugin file into the appropriate plugins directory and registers
+    its absolute path in ``opencode.json`` under the ``"plugin"`` array.
+
+    Parameters
+    ----------
+    config_dir:
+        Override the OpenCode config directory.  Defaults to
+        ``~/.config/opencode`` (global) or ``.opencode`` in the current
+        directory (project-level).
+    project_level:
+        If True and *config_dir* is None, use ``.opencode/`` in the current
+        working directory instead of the user-level config directory.
+
+    Returns
+    -------
+    The path of the installed plugin file.
+    """
+    if config_dir:
+        base = Path(config_dir).expanduser()
+    elif project_level:
+        base = Path.cwd() / ".opencode"
+    else:
+        base = OPENCODE_GLOBAL_CONFIG_DIR
+
+    plugin_dir = base / "plugins"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    plugin_file = plugin_dir / OPENCODE_PLUGIN_FILENAME
+
+    # Template the binary path into the TS source.
+    binary = _resolve_binary_path()
+    src_ts = _PLUGIN_ASSETS_DIR / "opencode-plugin.ts"
+    ts_source = src_ts.read_text()
+    ts_source = ts_source.replace("__CLAWCARE_BIN__", binary)
+    plugin_file.write_text(ts_source)
+
+    # Register in opencode.json.
+    cfg_path = base / "opencode.json"
+    _opencode_set_plugin_registered(cfg_path, plugin_file=plugin_file, enabled=True)
+
+    return plugin_file
+
+
+def deactivate_opencode(
+    config_dir: str | Path | None = None,
+    *,
+    project_level: bool = False,
+) -> bool:
+    """Remove the ClawCare Guard plugin for OpenCode.
+
+    Deletes the plugin file and removes it from ``opencode.json``.
+    Returns True if anything was removed.
+    """
+    if config_dir:
+        base = Path(config_dir).expanduser()
+    elif project_level:
+        base = Path.cwd() / ".opencode"
+    else:
+        base = OPENCODE_GLOBAL_CONFIG_DIR
+
+    plugin_file = base / "plugins" / OPENCODE_PLUGIN_FILENAME
+    cfg_path = base / "opencode.json"
+
+    changed = False
+
+    if plugin_file.is_file():
+        plugin_file.unlink()
+        changed = True
+
+    if cfg_path.is_file():
+        changed = (
+            _opencode_set_plugin_registered(cfg_path, plugin_file=plugin_file, enabled=False)
+            or changed
+        )
+
+    return changed
+
+
+def is_opencode_active(
+    config_dir: str | Path | None = None,
+    *,
+    project_level: bool = False,
+) -> bool:
+    """Return True if the ClawCare Guard plugin is installed for OpenCode."""
+    if config_dir:
+        base = Path(config_dir).expanduser()
+    elif project_level:
+        base = Path.cwd() / ".opencode"
+    else:
+        base = OPENCODE_GLOBAL_CONFIG_DIR
+
+    plugin_file = base / "plugins" / OPENCODE_PLUGIN_FILENAME
+    return plugin_file.is_file()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -396,6 +514,40 @@ def _openclaw_set_plugin_enabled(
 
     _write_json(cfg_path, config)
     return True
+
+
+def _opencode_set_plugin_registered(
+    cfg_path: Path,
+    *,
+    plugin_file: Path,
+    enabled: bool,
+) -> bool:
+    """Add or remove the plugin file path from the ``"plugin"`` array in
+    ``opencode.json``.
+
+    OpenCode loads plugins listed in the ``"plugin"`` array by absolute path.
+    Returns True if the config was modified.
+    """
+    config = _load_json(cfg_path)
+    plugin_list: list = config.setdefault("plugin", [])
+
+    plugin_path_str = str(plugin_file.resolve())
+    present = plugin_path_str in plugin_list
+
+    if enabled and not present:
+        plugin_list.append(plugin_path_str)
+        _write_json(cfg_path, config)
+        return True
+
+    if not enabled and present:
+        plugin_list.remove(plugin_path_str)
+        # Clean up the key entirely if it's now empty.
+        if not plugin_list:
+            del config["plugin"]
+        _write_json(cfg_path, config)
+        return True
+
+    return False
 
 
 _ALL_HOOK_CMDS = {_PRE_HOOK_CMD, _POST_HOOK_CMD, _POST_FAILURE_HOOK_CMD}

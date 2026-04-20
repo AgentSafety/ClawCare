@@ -142,10 +142,12 @@ def scan(
     # --- load rules ---
     rules = resolve_rules(effective_rulesets if effective_rulesets else None)
 
-    # Apply ignore_rules from config
+    # Pre-filter rules that are globally suppressed (plain string entries).
+    # File-scoped entries are applied post-scan in the findings filter below.
     if rules and cfg.ignore_rules:
-        ignored = set(cfg.ignore_rules)
-        rules = [r for r in rules if r.id not in ignored]
+        globally_ignored = {e for e in cfg.ignore_rules if isinstance(e, str)}
+        if globally_ignored:
+            rules = [r for r in rules if r.id not in globally_ignored]
 
     for root in roots:
         scope = adapter.scan_scope(root)
@@ -176,10 +178,13 @@ def scan(
             if manifest.fail_on:
                 effective_fail_on = manifest.fail_on
 
-    # Filter ignored rules from findings (for default rules path)
+    # Filter ignored rules from findings
     if cfg.ignore_rules:
-        ignored = set(cfg.ignore_rules)
-        result.findings = [f for f in result.findings if f.rule_id not in ignored]
+        from clawcare.config import is_rule_ignored
+        result.findings = [
+            f for f in result.findings
+            if not is_rule_ignored(f.rule_id, f.file_path, cfg.ignore_rules, target_path)
+        ]
 
     # --- scoring ---
     result.fail_on = effective_fail_on
@@ -409,7 +414,7 @@ def guard_run(
 @click.option(
     "--platform",
     required=True,
-    type=click.Choice(["claude", "openclaw"], case_sensitive=False),
+    type=click.Choice(["claude", "openclaw", "opencode"], case_sensitive=False),
     help="Platform whose hook protocol to handle.",
 )
 @click.option(
@@ -435,6 +440,10 @@ def guard_hook(platform: str, stage: str, config_path: str | None) -> None:
       after_tool_call → clawcare guard hook --platform openclaw --stage post
       (pre-command scanning is handled by the TS plugin calling
        `clawcare guard run` directly)
+    OpenCode:
+      tool.execute.after → clawcare guard hook --platform opencode --stage post
+      (pre-command scanning is handled by the TS plugin's tool.execute.before
+       hook calling `clawcare guard run` directly)
     """
     import os
 
@@ -446,6 +455,9 @@ def guard_hook(platform: str, stage: str, config_path: str | None) -> None:
     )
     from clawcare.guard.hooks.openclaw import (
         handle_post as openclaw_handle_post,
+    )
+    from clawcare.guard.hooks.opencode import (
+        handle_post as opencode_handle_post,
     )
 
     cfg = load_guard_config(config_path, scan_path=None if config_path else os.getcwd())
@@ -468,6 +480,16 @@ def guard_hook(platform: str, stage: str, config_path: str | None) -> None:
             exit_code = openclaw_handle_post(cfg)
         sys.exit(exit_code)
 
+    if platform == "opencode":
+        if stage == "pre":
+            # Pre-command scanning for OpenCode is done by the TS plugin's
+            # tool.execute.before hook calling `clawcare guard run` directly;
+            # this path is a no-op.
+            sys.exit(0)
+        else:
+            exit_code = opencode_handle_post(cfg)
+        sys.exit(exit_code)
+
     click.echo(f"Unsupported platform: {platform}", err=True)
     sys.exit(1)
 
@@ -476,7 +498,7 @@ def guard_hook(platform: str, stage: str, config_path: str | None) -> None:
 @click.option(
     "--platform",
     required=True,
-    type=click.Choice(["claude", "openclaw"], case_sensitive=False),
+    type=click.Choice(["claude", "openclaw", "opencode"], case_sensitive=False),
     help="Platform to install hooks for.",
 )
 @click.option(
@@ -500,6 +522,11 @@ def guard_activate(platform: str, settings_path: str | None, project: bool) -> N
       Installs the ClawCare Guard TypeScript plugin into
       ~/.openclaw/extensions/clawcare-guard/ and enables it in
       ~/.openclaw/openclaw.json.
+    OpenCode:
+      Writes the ClawCare Guard TypeScript plugin to
+      ~/.config/opencode/plugins/clawcare-guard.ts (global) or
+      .opencode/plugins/clawcare-guard.ts (--project) and registers it in
+      opencode.json under the "plugin" array.
     """
     if platform == "claude":
         from clawcare.guard.activate import _resolve_binary_path, activate_claude
@@ -538,6 +565,24 @@ def guard_activate(platform: str, settings_path: str | None, project: bool) -> N
             )
         return
 
+    if platform == "opencode":
+        from clawcare.guard.activate import _resolve_binary_path, activate_opencode
+
+        dest = activate_opencode(config_dir=settings_path, project_level=project)
+        binary = _resolve_binary_path()
+        click.echo(f"✅ ClawCare guard plugin installed in {dest}")
+        click.echo(f"   Binary path: {binary}")
+
+        if binary == "clawcare":
+            click.echo(
+                "\n⚠  Warning: Could not resolve an absolute path for 'clawcare'.\n"
+                "   The plugin will use the bare command name and rely on PATH.\n"
+                "   Consider installing with `pipx install clawcare` or adding\n"
+                "   the virtualenv bin directory to your shell PATH.",
+                err=True,
+            )
+        return
+
     click.echo(f"Unsupported platform: {platform}", err=True)
     sys.exit(1)
 
@@ -546,7 +591,7 @@ def guard_activate(platform: str, settings_path: str | None, project: bool) -> N
 @click.option(
     "--platform",
     required=True,
-    type=click.Choice(["claude", "openclaw"], case_sensitive=False),
+    type=click.Choice(["claude", "openclaw", "opencode"], case_sensitive=False),
     help="Platform to remove hooks from.",
 )
 @click.option(
@@ -556,7 +601,10 @@ def guard_activate(platform: str, settings_path: str | None, project: bool) -> N
     type=click.Path(),
     help="Path to platform settings file (auto-detected if omitted).",
 )
-def guard_deactivate(platform: str, settings_path: str | None) -> None:
+@click.option(
+    "--project", is_flag=True, default=False, help="Target project-level installation."
+)
+def guard_deactivate(platform: str, settings_path: str | None, project: bool) -> None:
     """Remove ClawCare guard hooks from a platform's config."""
     if platform == "claude":
         from clawcare.guard.activate import deactivate_claude
@@ -580,6 +628,16 @@ def guard_deactivate(platform: str, settings_path: str | None) -> None:
             click.echo("No ClawCare plugin found to remove.")
         return
 
+    if platform == "opencode":
+        from clawcare.guard.activate import deactivate_opencode
+
+        removed = deactivate_opencode(config_dir=settings_path, project_level=project)
+        if removed:
+            click.echo("✅ ClawCare guard plugin removed.")
+        else:
+            click.echo("No ClawCare plugin found to remove.")
+        return
+
     click.echo(f"Unsupported platform: {platform}", err=True)
     sys.exit(1)
 
@@ -588,7 +646,7 @@ def guard_deactivate(platform: str, settings_path: str | None) -> None:
 @click.option(
     "--platform",
     required=True,
-    type=click.Choice(["claude", "openclaw"], case_sensitive=False),
+    type=click.Choice(["claude", "openclaw", "opencode"], case_sensitive=False),
     help="Platform to check.",
 )
 @click.option(
@@ -598,7 +656,10 @@ def guard_deactivate(platform: str, settings_path: str | None) -> None:
     type=click.Path(),
     help="Path to platform settings file.",
 )
-def guard_status(platform: str, settings_path: str | None) -> None:
+@click.option(
+    "--project", is_flag=True, default=False, help="Check project-level installation."
+)
+def guard_status(platform: str, settings_path: str | None, project: bool) -> None:
     """Check whether ClawCare guard hooks are installed."""
     if platform == "claude":
         from clawcare.guard.activate import is_claude_active
@@ -616,6 +677,16 @@ def guard_status(platform: str, settings_path: str | None) -> None:
         active = is_openclaw_active(
             openclaw_home=settings_path,
         )
+        if active:
+            click.echo("ClawCare guard plugin: ACTIVE")
+        else:
+            click.echo("ClawCare guard plugin: NOT INSTALLED")
+        return
+
+    if platform == "opencode":
+        from clawcare.guard.activate import is_opencode_active
+
+        active = is_opencode_active(config_dir=settings_path, project_level=project)
         if active:
             click.echo("ClawCare guard plugin: ACTIVE")
         else:

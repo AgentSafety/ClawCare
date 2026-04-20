@@ -20,7 +20,9 @@ Both files share the same format::
       exclude:
         - "vendor/**"
       ignore_rules:
-        - MED_JS_EVAL
+        - MED_JS_EVAL                        # suppress everywhere
+        - rule: CRIT_PIPE_TO_SHELL           # suppress in one file
+          file: skills/legacy/setup.sh
       max_file_size_kb: 512
 
     guard:
@@ -58,7 +60,7 @@ class ScanConfig:
     block_local: bool = False
     rulesets: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
-    ignore_rules: list[str] = field(default_factory=list)
+    ignore_rules: list = field(default_factory=list)  # str or {rule, file} dict
     max_file_size_kb: int = 512
 
 
@@ -276,7 +278,7 @@ def _raw_to_config(
         block_local=bool(scan_raw.get("block_local", False)),
         rulesets=_as_list(scan_raw.get("rulesets", [])),
         exclude=_as_list(scan_raw.get("exclude", [])),
-        ignore_rules=_as_list(scan_raw.get("ignore_rules", [])),
+        ignore_rules=_as_ignore_list(scan_raw.get("ignore_rules", [])),
         max_file_size_kb=int(scan_raw.get("max_file_size_kb", 512)),
     )
 
@@ -309,3 +311,46 @@ def _as_list(val: object) -> list[str]:
     if isinstance(val, str):
         return [val]
     return []
+
+
+def _as_ignore_list(val: object) -> list:
+    """Coerce ignore_rules to a list of strings and/or {rule, file} dicts."""
+    if not isinstance(val, list):
+        return [str(val)] if val else []
+    result = []
+    for item in val:
+        if isinstance(item, str):
+            result.append(item)
+        elif isinstance(item, dict) and item.get("rule"):
+            result.append({"rule": str(item["rule"]), "file": str(item.get("file", ""))})
+    return result
+
+
+def is_rule_ignored(rule_id: str, file_path: str, ignore_rules: list, scan_root: str) -> bool:
+    """Return True if *rule_id* / *file_path* is covered by any ignore entry.
+
+    Each entry in *ignore_rules* is either:
+
+    * a plain string — suppresses the rule everywhere
+    * ``{"rule": "RULE_ID", "file": "relative/path"}`` — suppresses only in
+      that file (glob patterns supported via :func:`fnmatch.fnmatch`)
+    """
+    import fnmatch
+    from pathlib import Path
+
+    try:
+        rel = str(Path(file_path).relative_to(Path(scan_root).resolve()))
+    except ValueError:
+        rel = file_path
+
+    for entry in ignore_rules:
+        if isinstance(entry, str):
+            if rule_id == entry:
+                return True
+        elif isinstance(entry, dict):
+            if rule_id != entry.get("rule", ""):
+                continue
+            file_pat = entry.get("file", "")
+            if not file_pat or fnmatch.fnmatch(rel, file_pat):
+                return True
+    return False
