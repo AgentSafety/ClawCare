@@ -396,6 +396,7 @@ Options:
   --adapter NAME          Force a specific adapter (default: auto-detect)
   --ruleset PATH          Additional rulesets (repeatable)
   --exclude GLOB          Exclude glob patterns (repeatable)
+  --ignore-rule RULE[=FILE]  Suppress a rule; optionally scope to one file/glob (repeatable)
   --max-file-size-kb N    Skip files larger than N KB
   --manifest MODE         Manifest enforcement: auto|skip|strict (default: auto)
 

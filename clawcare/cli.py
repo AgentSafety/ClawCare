@@ -83,6 +83,17 @@ def main() -> None:
     multiple=True,
     help="Ruleset folder path or built-in name (repeatable). Default ruleset always included.",
 )
+@click.option(
+    "--ignore-rule",
+    "ignore_rules_cli",
+    multiple=True,
+    metavar="RULE[=FILE]",
+    help=(
+        "Suppress a rule (repeatable). "
+        "RULE alone suppresses everywhere; RULE=path/to/file.py scopes it to one file. "
+        "Glob patterns accepted in the file part."
+    ),
+)
 def scan(
     path: str,
     adapter_spec: str,
@@ -95,8 +106,18 @@ def scan(
     excludes: tuple[str, ...],
     max_kb: int | None,
     rulesets: tuple[str, ...],
+    ignore_rules_cli: tuple[str, ...],
 ) -> None:
-    """Scan an extension path for risky patterns."""
+    """Scan an extension path for risky patterns.
+
+    \b
+    Suppressing rules:
+      --ignore-rule MED_JS_EVAL                        suppress everywhere
+      --ignore-rule CRIT_PIPE_TO_SHELL=skills/old.sh   suppress in one file
+      --ignore-rule HIGH_RAW_IP_OUTBOUND=skills/**     glob patterns work too
+
+    These merge with any ignore_rules defined in .clawcare.yml.
+    """
     target_path = str(Path(path).resolve())
 
     # --- load project config (.clawcare.yml) ---
@@ -108,6 +129,16 @@ def scan(
     effective_max_kb = max_kb if max_kb is not None else cfg.max_file_size_kb
     effective_excludes = list(excludes) + cfg.exclude
     effective_rulesets = list(rulesets) + cfg.rulesets
+
+    # Merge --ignore-rule CLI entries into the effective ignore list.
+    # Format: "RULE_ID" or "RULE_ID=file/glob"
+    effective_ignore: list = list(cfg.ignore_rules)
+    for raw in ignore_rules_cli:
+        if "=" in raw:
+            rule_id, file_pat = raw.split("=", 1)
+            effective_ignore.append({"rule": rule_id.strip(), "file": file_pat.strip()})
+        else:
+            effective_ignore.append(raw.strip())
 
     # --- adapter selection ---
     try:
@@ -144,8 +175,8 @@ def scan(
 
     # Pre-filter rules that are globally suppressed (plain string entries).
     # File-scoped entries are applied post-scan in the findings filter below.
-    if rules and cfg.ignore_rules:
-        globally_ignored = {e for e in cfg.ignore_rules if isinstance(e, str)}
+    if rules and effective_ignore:
+        globally_ignored = {e for e in effective_ignore if isinstance(e, str)}
         if globally_ignored:
             rules = [r for r in rules if r.id not in globally_ignored]
 
@@ -178,12 +209,16 @@ def scan(
             if manifest.fail_on:
                 effective_fail_on = manifest.fail_on
 
-    # Filter ignored rules from findings
-    if cfg.ignore_rules:
+    # Filter ignored rules from findings and manifest violations.
+    if effective_ignore:
         from clawcare.config import is_rule_ignored
         result.findings = [
             f for f in result.findings
-            if not is_rule_ignored(f.rule_id, f.file_path, cfg.ignore_rules, target_path)
+            if not is_rule_ignored(f.rule_id, f.file_path, effective_ignore, target_path)
+        ]
+        result.manifest_violations = [
+            f for f in result.manifest_violations
+            if not is_rule_ignored(f.rule_id, f.file_path, effective_ignore, target_path)
         ]
 
     # --- scoring ---
