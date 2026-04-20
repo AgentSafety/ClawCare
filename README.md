@@ -69,7 +69,7 @@ clawcare dashboard
 
 ### ClawCare Scan
 
-Scan agent skills and plugins for vulnerabilities. Currently supports Claude Code, OpenCode, OpenClaw, Codex and Cursor Agent. Also works for generic SKILL.md.
+Scan agent skills and plugins for vulnerabilities. Currently supports Claude Code, OpenClaw, Codex and Cursor Agent. Also works for generic SKILL.md.
 
 ```bash
 # Scan a project — auto-detects the platform
