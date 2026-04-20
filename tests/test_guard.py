@@ -1595,8 +1595,8 @@ class TestScanIgnoreRuleCLI:
             "--format", "text",
         ])
         # Rule still fires in exploit.py, gone from SKILL.md
-        lines = [l for l in result.output.splitlines() if "CRIT_PIPE_TO_SHELL" in l]
-        assert all("exploit.py" in l for l in lines)
+        lines = [ln for ln in result.output.splitlines() if "CRIT_PIPE_TO_SHELL" in ln]
+        assert all("exploit.py" in ln for ln in lines)
 
     def test_ignore_rule_repeatable(self):
         runner = CliRunner()
