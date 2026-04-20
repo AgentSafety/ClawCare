@@ -24,20 +24,19 @@ class OpenClawAdapter:
 
         score = 0.0
 
-        # Strong OpenClaw-specific signal: .opencode/skills/*/SKILL.md
-        opencode_skills = p / ".opencode" / "skills"
-        if opencode_skills.is_dir():
-            for child in opencode_skills.iterdir():
+        # Strong OpenClaw-specific signal: .agents/skills/*/SKILL.md
+        agents_skills = p / ".agents" / "skills"
+        if agents_skills.is_dir():
+            for child in agents_skills.iterdir():
                 if child.is_dir() and (child / "SKILL.md").is_file():
                     return 0.95  # near-certain OpenClaw
 
-        # Compatible paths: .claude/skills/ or .agents/skills/
-        for compat_dir in (".claude/skills", ".agents/skills"):
-            compat = p / compat_dir
-            if compat.is_dir():
-                for child in compat.iterdir():
-                    if child.is_dir() and (child / "SKILL.md").is_file():
-                        score = max(score, 0.5)
+        # Compatible path: .claude/skills/
+        compat = p / ".claude" / "skills"
+        if compat.is_dir():
+            for child in compat.iterdir():
+                if child.is_dir() and (child / "SKILL.md").is_file():
+                    score = max(score, 0.5)
 
         # Direct SKILL.md at root (standalone skill)
         if (p / "SKILL.md").is_file():

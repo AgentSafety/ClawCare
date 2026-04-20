@@ -108,7 +108,7 @@ Findings: 2 critical, 1 high, 0 medium, 0 low
 ============================================================
 ```
 
-### Platform Adapters for Claude Code, OpenCode, OpenClaw, Codex and Cursor Agent Skills
+### Platform Adapters for Claude Code, OpenClaw, Codex and Cursor Agent Skills
 
 Auto-detects the AI agent platform and scans the right files:
 
@@ -117,7 +117,7 @@ Auto-detects the AI agent platform and scans the right files:
 | **Claude Code** | `.claude/skills/*/SKILL.md` + code | `.claude-plugin/`, `SKILL.md` |
 | **Cursor** | `.cursor/rules/*.mdc`, `.cursorrules` + skills | `.cursor/` directory |
 | **Codex** | `AGENTS.md`, `AGENTS.override.md` + skills | `AGENTS.md` |
-| **OpenClaw** | `SKILL.md` + code in skill directories | `.opencode/` |
+| **OpenClaw** | `SKILL.md` + code in skill directories | `.agents/skills/` |
 
 All following the file structure of the respective AI agent platforms.
 

@@ -6,8 +6,8 @@ Fixtures:
     - claude_malicious_plugin/       → plugin (.claude-plugin/ + skills/)
     - claude_manifest_violation/     → plugin with clawcare.manifest.yml violations
   OpenClaw:
-    - openclaw_benign_project/       → project with .opencode/skills/
-    - openclaw_malicious_project/    → project with malicious .opencode/skills/
+    - openclaw_benign_project/       → project with .agents/skills/
+    - openclaw_malicious_project/    → project with malicious .agents/skills/
 """
 
 import contextlib
