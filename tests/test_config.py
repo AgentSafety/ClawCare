@@ -3,6 +3,7 @@
 import os
 
 from clawcare.config import (
+    is_rule_ignored,
     load_config,
     load_guard_config,
     load_project_config,
@@ -223,6 +224,96 @@ guard:
         assert cfg.scan.rulesets == ["default", "./team-rules"]
         assert cfg.guard.fail_on == "critical"
         assert cfg.guard.audit.enabled is True
+
+
+class TestIsRuleIgnored:
+    """Unit tests for is_rule_ignored() — the file-scoped ignore helper."""
+
+    def test_plain_string_matches_everywhere(self, tmp_path):
+        rules = ["MED_JS_EVAL"]
+        assert is_rule_ignored("MED_JS_EVAL", str(tmp_path / "a.js"), rules, str(tmp_path))
+        assert is_rule_ignored("MED_JS_EVAL", str(tmp_path / "sub/b.js"), rules, str(tmp_path))
+
+    def test_plain_string_does_not_match_other_rule(self, tmp_path):
+        rules = ["MED_JS_EVAL"]
+        assert not is_rule_ignored("CRIT_PIPE_TO_SHELL", str(tmp_path / "a.sh"), rules, str(tmp_path))
+
+    def test_file_scoped_matches_only_target_file(self, tmp_path):
+        rules = [{"rule": "CRIT_PIPE_TO_SHELL", "file": "skills/setup.sh"}]
+        target = str(tmp_path / "skills" / "setup.sh")
+        other = str(tmp_path / "skills" / "other.sh")
+        assert is_rule_ignored("CRIT_PIPE_TO_SHELL", target, rules, str(tmp_path))
+        assert not is_rule_ignored("CRIT_PIPE_TO_SHELL", other, rules, str(tmp_path))
+
+    def test_file_scoped_glob_pattern(self, tmp_path):
+        rules = [{"rule": "HIGH_RAW_IP_OUTBOUND", "file": "skills/**"}]
+        inside = str(tmp_path / "skills" / "net" / "fetch.py")
+        outside = str(tmp_path / "tests" / "fetch.py")
+        assert is_rule_ignored("HIGH_RAW_IP_OUTBOUND", inside, rules, str(tmp_path))
+        assert not is_rule_ignored("HIGH_RAW_IP_OUTBOUND", outside, rules, str(tmp_path))
+
+    def test_file_scoped_wrong_rule_not_matched(self, tmp_path):
+        rules = [{"rule": "CRIT_PIPE_TO_SHELL", "file": "skills/setup.sh"}]
+        target = str(tmp_path / "skills" / "setup.sh")
+        assert not is_rule_ignored("MED_JS_EVAL", target, rules, str(tmp_path))
+
+    def test_empty_file_in_dict_matches_everywhere(self, tmp_path):
+        rules = [{"rule": "MED_JS_EVAL", "file": ""}]
+        assert is_rule_ignored("MED_JS_EVAL", str(tmp_path / "anywhere.js"), rules, str(tmp_path))
+
+    def test_mixed_list_plain_and_scoped(self, tmp_path):
+        rules = [
+            "LOW_BROAD_GLOB",
+            {"rule": "CRIT_PIPE_TO_SHELL", "file": "skills/setup.sh"},
+        ]
+        # Plain string suppresses everywhere
+        assert is_rule_ignored("LOW_BROAD_GLOB", str(tmp_path / "any.py"), rules, str(tmp_path))
+        # Scoped entry only suppresses in the target file
+        target = str(tmp_path / "skills" / "setup.sh")
+        other = str(tmp_path / "skills" / "other.sh")
+        assert is_rule_ignored("CRIT_PIPE_TO_SHELL", target, rules, str(tmp_path))
+        assert not is_rule_ignored("CRIT_PIPE_TO_SHELL", other, rules, str(tmp_path))
+
+
+class TestIgnoreRulesConfig:
+    """Tests for loading file-scoped ignore_rules from YAML."""
+
+    def test_loads_dict_entries_from_yaml(self, tmp_path):
+        (tmp_path / ".clawcare.yml").write_text("""\
+scan:
+  ignore_rules:
+    - MED_JS_EVAL
+    - rule: CRIT_PIPE_TO_SHELL
+      file: skills/legacy/setup.sh
+""")
+        cfg = load_project_config(str(tmp_path))
+        assert "MED_JS_EVAL" in cfg.ignore_rules
+        scoped = next(e for e in cfg.ignore_rules if isinstance(e, dict))
+        assert scoped["rule"] == "CRIT_PIPE_TO_SHELL"
+        assert scoped["file"] == "skills/legacy/setup.sh"
+
+    def test_dict_entry_without_file_key(self, tmp_path):
+        (tmp_path / ".clawcare.yml").write_text("""\
+scan:
+  ignore_rules:
+    - rule: MED_JS_EVAL
+""")
+        cfg = load_project_config(str(tmp_path))
+        # Entry without file should still be kept
+        scoped = next((e for e in cfg.ignore_rules if isinstance(e, dict)), None)
+        assert scoped is not None
+        assert scoped["rule"] == "MED_JS_EVAL"
+
+    def test_invalid_dict_entry_skipped(self, tmp_path):
+        """Dicts without 'rule' key are silently skipped."""
+        (tmp_path / ".clawcare.yml").write_text("""\
+scan:
+  ignore_rules:
+    - file: skills/setup.sh
+    - MED_JS_EVAL
+""")
+        cfg = load_project_config(str(tmp_path))
+        assert cfg.ignore_rules == ["MED_JS_EVAL"]
 
 
 class TestIgnoreRulesIntegration:

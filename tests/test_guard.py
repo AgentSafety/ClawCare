@@ -16,10 +16,13 @@ from clawcare.guard.activate import (
     _resolve_binary_path,
     activate_claude,
     activate_openclaw,
+    activate_opencode,
     deactivate_claude,
     deactivate_openclaw,
+    deactivate_opencode,
     is_claude_active,
     is_openclaw_active,
+    is_opencode_active,
 )
 from clawcare.guard.audit import write_audit_event
 from clawcare.guard.config import (
@@ -34,6 +37,7 @@ from clawcare.guard.hooks.claude import (
     handle_pre,
 )
 from clawcare.guard.hooks.openclaw import handle_post as handle_openclaw_post
+from clawcare.guard.hooks.opencode import handle_post as handle_opencode_post
 from clawcare.guard.scanner import (
     CommandFinding,
     _extract_cmd_verb,
@@ -1445,3 +1449,178 @@ class TestGuardReportCLI:
         result = runner.invoke(main, ["guard", "report", "--config", str(cfg_path)])
         assert result.exit_code == 0
         assert "No audit events found" in result.output
+
+
+class TestOpenCodeHookHandler:
+    """Unit tests for OpenCode post-hook audit behavior."""
+
+    def _make_config(self, tmp_path, fail_on="high"):
+        return GuardConfig(
+            fail_on=fail_on,
+            audit=AuditConfig(enabled=True, log_path=str(tmp_path / "audit.jsonl")),
+        )
+
+    def test_post_hook_logs_executed_command(self, tmp_path):
+        cfg = self._make_config(tmp_path)
+        payload = json.dumps({
+            "tool": "bash",
+            "input": {"command": "ls -la"},
+            "output": {"output": "total 0\n"},
+        })
+        with mock.patch("sys.stdin", StringIO(payload)):
+            exit_code = handle_opencode_post(cfg)
+        assert exit_code == 0
+        record = json.loads((tmp_path / "audit.jsonl").read_text().strip())
+        assert record["event"] == "post_exec"
+        assert record["platform"] == "opencode"
+        assert record["command"] == "ls -la"
+        assert record["status"] == "executed"
+
+    def test_post_hook_logs_violation_in_findings(self, tmp_path):
+        cfg = self._make_config(tmp_path)
+        payload = json.dumps({
+            "tool": "bash",
+            "input": {"command": "pip install requests"},
+            "output": {"output": ""},
+        })
+        with mock.patch("sys.stdin", StringIO(payload)):
+            handle_opencode_post(cfg)
+        record = json.loads((tmp_path / "audit.jsonl").read_text().strip())
+        finding_ids = [f["rule_id"] if isinstance(f, dict) else f for f in record["findings"]]
+        assert "MED_RUNTIME_INSTALL" in finding_ids
+
+    def test_post_hook_empty_stdin_is_noop(self, tmp_path):
+        cfg = self._make_config(tmp_path)
+        with mock.patch("sys.stdin", StringIO("")):
+            exit_code = handle_opencode_post(cfg)
+        assert exit_code == 0
+        assert not (tmp_path / "audit.jsonl").exists()
+
+    def test_post_hook_audit_disabled(self, tmp_path):
+        cfg = GuardConfig(
+            fail_on="high",
+            audit=AuditConfig(enabled=False, log_path=str(tmp_path / "audit.jsonl")),
+        )
+        payload = json.dumps({"tool": "bash", "input": {"command": "ls"}, "output": {}})
+        with mock.patch("sys.stdin", StringIO(payload)):
+            handle_opencode_post(cfg)
+        assert not (tmp_path / "audit.jsonl").exists()
+
+
+class TestActivateOpenCode:
+    """Tests for OpenCode plugin installation."""
+
+    def test_activate_installs_plugin_file(self, tmp_path):
+        plugin_file = activate_opencode(config_dir=tmp_path)
+        assert plugin_file.exists()
+        assert plugin_file.name == "clawcare-guard.ts"
+        assert plugin_file.parent.name == "plugins"
+
+    def test_activate_templates_binary_path(self, tmp_path):
+        activate_opencode(config_dir=tmp_path)
+        plugin_file = tmp_path / "plugins" / "clawcare-guard.ts"
+        content = plugin_file.read_text()
+        assert "__CLAWCARE_BIN__" not in content
+        assert 'const CLAWCARE_BIN = "' in content
+
+    def test_activate_registers_in_opencode_json(self, tmp_path):
+        plugin_file = activate_opencode(config_dir=tmp_path)
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        assert str(plugin_file.resolve()) in cfg["plugin"]
+
+    def test_activate_idempotent(self, tmp_path):
+        activate_opencode(config_dir=tmp_path)
+        activate_opencode(config_dir=tmp_path)
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        plugin_file = tmp_path / "plugins" / "clawcare-guard.ts"
+        assert cfg["plugin"].count(str(plugin_file.resolve())) == 1
+
+    def test_activate_project_level(self, tmp_path):
+        import os
+        project = tmp_path / "myproject"
+        project.mkdir()
+        orig = os.getcwd()
+        os.chdir(project)
+        try:
+            plugin_file = activate_opencode(project_level=True)
+        finally:
+            os.chdir(orig)
+        assert plugin_file.parent == project / ".opencode" / "plugins"
+
+    def test_deactivate_removes_plugin_file(self, tmp_path):
+        activate_opencode(config_dir=tmp_path)
+        removed = deactivate_opencode(config_dir=tmp_path)
+        assert removed is True
+        assert not (tmp_path / "plugins" / "clawcare-guard.ts").exists()
+
+    def test_deactivate_removes_from_opencode_json(self, tmp_path):
+        activate_opencode(config_dir=tmp_path)
+        deactivate_opencode(config_dir=tmp_path)
+        cfg = json.loads((tmp_path / "opencode.json").read_text())
+        assert cfg.get("plugin", []) == []
+
+    def test_deactivate_noop_when_not_installed(self, tmp_path):
+        removed = deactivate_opencode(config_dir=tmp_path)
+        assert removed is False
+
+    def test_is_active_lifecycle(self, tmp_path):
+        assert is_opencode_active(config_dir=tmp_path) is False
+        activate_opencode(config_dir=tmp_path)
+        assert is_opencode_active(config_dir=tmp_path) is True
+        deactivate_opencode(config_dir=tmp_path)
+        assert is_opencode_active(config_dir=tmp_path) is False
+
+
+class TestScanIgnoreRuleCLI:
+    """Tests for --ignore-rule flag on clawcare scan."""
+
+    def _malicious_fixture(self):
+        import os
+        return os.path.join(os.path.dirname(__file__), "fixtures", "claude_malicious_plugin")
+
+    def test_ignore_rule_global_suppresses_everywhere(self):
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "scan", self._malicious_fixture(),
+            "--ignore-rule", "CRIT_PIPE_TO_SHELL",
+            "--format", "text",
+        ])
+        assert "CRIT_PIPE_TO_SHELL" not in result.output
+
+    def test_ignore_rule_file_scoped_suppresses_only_that_file(self):
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "scan", self._malicious_fixture(),
+            "--ignore-rule", "CRIT_PIPE_TO_SHELL=skills/evil-skill/SKILL.md",
+            "--format", "text",
+        ])
+        # Rule still fires in exploit.py, gone from SKILL.md
+        lines = [l for l in result.output.splitlines() if "CRIT_PIPE_TO_SHELL" in l]
+        assert all("exploit.py" in l for l in lines)
+
+    def test_ignore_rule_repeatable(self):
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "scan", self._malicious_fixture(),
+            "--ignore-rule", "CRIT_PIPE_TO_SHELL",
+            "--ignore-rule", "CRIT_PERSISTENCE",
+            "--format", "text",
+        ])
+        assert "CRIT_PIPE_TO_SHELL" not in result.output
+        assert "CRIT_PERSISTENCE" not in result.output
+
+    def test_manifest_violations_are_also_filtered(self, tmp_path):
+        """is_rule_ignored applies to manifest_violations, not just findings."""
+        from clawcare.config import is_rule_ignored
+        from clawcare.models import Finding, Severity
+
+        f = Finding(
+            rule_id="MANIFEST_EXEC_VIOLATION",
+            severity=Severity.HIGH,
+            file_path=str(tmp_path / "skills" / "setup.sh"),
+            line=1,
+            excerpt="exec call",
+            explanation="test",
+        )
+        assert is_rule_ignored(f.rule_id, f.file_path, ["MANIFEST_EXEC_VIOLATION"], str(tmp_path))
+        assert not is_rule_ignored(f.rule_id, f.file_path, ["OTHER_RULE"], str(tmp_path))
