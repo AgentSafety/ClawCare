@@ -22,3 +22,10 @@ htmlcov/
 
 # Project-specific
 DESIGN.md
+
+# macOS metadata
+.DS_Store
+
+# Generated outputs (clawcare dashboard, scan reports)
+clawcare-dashboard.html
+scan.json
